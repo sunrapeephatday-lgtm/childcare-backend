@@ -1,18 +1,22 @@
 // backend/db.js
-const mysql = require('mysql2/promise');
-
-// ❗ ไม่ต้อง require dotenv ตรงนี้
-// ให้โหลดที่ server.js ที่เดียวพอ
+const mysql = require("mysql2/promise");
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASS,
   database: process.env.DB_NAME,
+  port: process.env.DB_PORT,
+
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  charset: 'utf8mb4'
+
+  charset: "utf8mb4",
+
+  ssl: {
+    rejectUnauthorized: false
+  }
 });
 
 module.exports = pool;
