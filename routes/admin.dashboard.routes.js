@@ -135,7 +135,15 @@ router.get("/search-child", async (req, res) => {
         c.prefix LIKE ? OR
         c.first_name LIKE ? OR
         c.last_name LIKE ? OR
-        cl.classroom_name LIKE ?
+        cl.classroom_name LIKE ? OR
+
+        CONCAT(c.prefix, c.first_name) LIKE ? OR
+        CONCAT(c.prefix, ' ', c.first_name) LIKE ? OR
+
+        CONCAT(c.first_name, ' ', c.last_name) LIKE ? OR
+
+        CONCAT(c.prefix, c.first_name, ' ', c.last_name) LIKE ? OR
+        CONCAT(c.prefix, ' ', c.first_name, ' ', c.last_name) LIKE ?
     `, [
       month, year,
       month, year,
@@ -149,7 +157,15 @@ router.get("/search-child", async (req, res) => {
       month, year,
       month, year,
       month, year,
-      `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
     ]);
 
     res.json(rows);
