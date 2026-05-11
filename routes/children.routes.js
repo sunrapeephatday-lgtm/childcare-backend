@@ -54,7 +54,7 @@ router.get("/my", authMiddleware, async (req, res) => {
       c.classroom_id,
       c.note,
       (
-          SELECT GROUP_CONCAT(
+          SELECT GROUP_CONCAT(DISTINCT
               CONCAT(
                   r2.relationship, ': ',
                   p2.prefix, p2.first_name, ' ', p2.last_name,
