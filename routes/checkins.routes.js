@@ -54,8 +54,8 @@ router.get('/today', async (req, res) => {
       child_id: c.child_id,
       name: `${c.prefix || ''}${c.first_name} ${c.last_name}`,
       nickname: c.nickname,
-      status: map[c.child_id]?.status || 'null',
-      note: map[c.child_id]?.note || null,
+      status: map[c.child_id]?.status || 'มา',
+      note: map[c.child_id]?.note || "",
       attendance_id: map[c.child_id]?.attendance_id || null
     }));
 
