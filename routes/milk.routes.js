@@ -63,20 +63,26 @@ router.get("/today", async (req, res) => {
 
     /* ⭐ record วันนี้ */
     const [records] = await pool.query(
-      `SELECT child_id, status
+      `SELECT child_id, status, note
        FROM milk_records
        WHERE teacher_id=? AND record_date=?`,
       [teacher_id, date]
     );
 
     const map = {};
-    records.forEach(r => (map[r.child_id] = r.status));
+    records.forEach(r => {
+      map[r.child_id] = {
+        status: r.status,
+        note: r.note
+      };
+    });
 
     const rows = children.map(c => ({
       child_id: c.child_id,
       name: `${c.prefix}${c.first_name} ${c.last_name}`,
       nickname: c.nickname,
-      status: map[c.child_id] || "ดื่ม"
+      status: map[c.child_id]?.status || "ดื่ม",
+      note: map[c.child_id]?.note || ""
     }));
 
     res.json({ rows });
@@ -140,10 +146,10 @@ router.post("/save", async (req, res) => {
     for (const it of items) {
       await conn.query(
         `INSERT INTO milk_records
-         (child_id, teacher_id, record_date, status)
-         VALUES (?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE status = VALUES(status)`,
-        [it.child_id, teacher_id, date, it.status]
+         (child_id, teacher_id, record_date, status, note)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE status = VALUES(status), note = VALUES(note)`,
+        [it.child_id, teacher_id, date, it.status, it.note || null]
       );
     }
 
