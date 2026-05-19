@@ -75,16 +75,13 @@ router.get("/search-child", async (req, res) => {
   try {
     const { q, month, year } = req.query;
 
-    // ✅ เพิ่มบรรทัดนี้ — แปลง พ.ศ. → ค.ศ.
-    const ceYear = Number(year) > 2500 ? Number(year) - 543 : Number(year);
-
     const [rows] = await pool.query(`
       SELECT 
         c.child_id,
         c.prefix,
         c.first_name,
         c.last_name,
-        cl.name AS classroom_name,  -- ✅ แก้จาก cl.classroom_name
+        cl.classroom_name,
 
         ar.status AS attendance,
         mr.status AS milk,
@@ -138,22 +135,37 @@ router.get("/search-child", async (req, res) => {
         c.prefix LIKE ? OR
         c.first_name LIKE ? OR
         c.last_name LIKE ? OR
-        cl.name LIKE ? OR           -- ✅ แก้จาก cl.classroom_name
+        cl.classroom_name LIKE ? OR
 
         CONCAT(c.prefix, c.first_name) LIKE ? OR
         CONCAT(c.prefix, ' ', c.first_name) LIKE ? OR
+
         CONCAT(c.first_name, ' ', c.last_name) LIKE ? OR
+
         CONCAT(c.prefix, c.first_name, ' ', c.last_name) LIKE ? OR
         CONCAT(c.prefix, ' ', c.first_name, ' ', c.last_name) LIKE ?
     `, [
-      month, ceYear, month, ceYear,  // ✅ ใช้ ceYear แทน year
-      month, ceYear, month, ceYear,
-      month, ceYear, month, ceYear,
-      month, ceYear, month, ceYear,
-      month, ceYear, month, ceYear,
-      month, ceYear, month, ceYear,
-      `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`,
-      `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`,
+      month, year,
+      month, year,
+      month, year,
+      month, year,
+      month, year,
+      month, year,
+      month, year,
+      month, year,
+      month, year,
+      month, year,
+      month, year,
+      month, year,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
     ]);
 
     res.json(rows);
