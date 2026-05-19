@@ -4,44 +4,48 @@ const pool = require("../db");
 const { authMiddleware } = require("../middlewares/auth");
 
 /* ==================================================
-   Dashboard: สรุปผลประเมินพัฒนาการ แยกตามห้อง
-   - นับเด็กที่มีผลประเมินแล้ว
-   - ใช้ DISTINCT child_id
+   Dashboard: สรุปผลประเมินพัฒนาการ
 ================================================== */
-router.get("/dashboard/development-summary", authMiddleware, async (req, res) => {
-  try {
-    if (req.user.role !== "admin") {
-      return res.status(403).json({ error: "forbidden" });
+router.get(
+  "/dashboard/development-summary",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      if (req.user.role !== "admin") {
+        return res.status(403).json({ error: "forbidden" });
+      }
+
+      const [rows] = await pool.query(`
+        SELECT
+          cl.classroom_id,
+          cl.name AS classroom_name,
+          COUNT(DISTINCT da.assessment_id) AS assessment_count
+        FROM classrooms cl
+        LEFT JOIN children c
+          ON c.classroom_id = cl.classroom_id
+        LEFT JOIN development_assessments da
+          ON da.child_id = c.child_id
+        GROUP BY cl.classroom_id, cl.name
+        ORDER BY cl.name
+      `);
+
+      res.json(rows);
+
+    } catch (err) {
+      console.error("development summary error:", err);
+      res.status(500).json({ error: "server error" });
     }
-
-    const [rows] = await pool.query(`
-      SELECT
-        cl.classroom_id,
-        cl.name AS classroom_name,
-        COUNT(DISTINCT da.assessment_id) AS assessment_count
-      FROM classrooms cl
-      LEFT JOIN children c ON c.classroom_id = cl.classroom_id
-      LEFT JOIN development_assessments da ON da.child_id = c.child_id
-      GROUP BY cl.classroom_id, cl.name
-      ORDER BY cl.name
-    `);
-
-    res.json(rows);
-  } catch (err) {
-    console.error("development summary error:", err);
-    res.status(500).json({ error: "server error" });
   }
-});
-/* =========================
-   สรุปจำนวนเด็ก (รวม / ชาย / หญิง)
-========================= */
+);
+
+/* ==================================================
+   สรุปจำนวนเด็ก
+================================================== */
 router.get(
   "/children-count",
   authMiddleware,
   async (req, res) => {
     try {
-      console.log("REQ.USER =", req.user);
-      console.log("CENTER_ID FROM TOKEN =", req.user.center_id);
 
       if (req.user.role !== "admin") {
         return res.status(403).json({ error: "forbidden" });
@@ -49,20 +53,36 @@ router.get(
 
       const centerId = req.user.center_id;
 
-      const [rows] = await pool.query(
-        `
+      const [rows] = await pool.query(`
         SELECT
           COUNT(c.child_id) AS total,
-          SUM(CASE WHEN c.prefix = 'เด็กชาย' THEN 1 ELSE 0 END) AS boys,
-          SUM(CASE WHEN c.prefix = 'เด็กหญิง' THEN 1 ELSE 0 END) AS girls
+
+          SUM(
+            CASE
+              WHEN c.prefix = 'เด็กชาย'
+              THEN 1
+              ELSE 0
+            END
+          ) AS boys,
+
+          SUM(
+            CASE
+              WHEN c.prefix = 'เด็กหญิง'
+              THEN 1
+              ELSE 0
+            END
+          ) AS girls
+
         FROM children c
-        JOIN classrooms cl ON cl.classroom_id = c.classroom_id
+
+        JOIN classrooms cl
+          ON cl.classroom_id = c.classroom_id
+
         WHERE cl.center_id = ?
-        `,
-        [centerId]
-      );
+      `, [centerId]);
 
       res.json(rows[0]);
+
     } catch (err) {
       console.error("children-count error:", err);
       res.status(500).json({ error: "server error" });
@@ -70,102 +90,55 @@ router.get(
   }
 );
 
-// 🔍 SEARCH CHILD
+/* ==================================================
+   🔍 SEARCH CHILD
+================================================== */
 router.get("/search-child", async (req, res) => {
   try {
-    const { q, month, year } = req.query;
+
+    const { q = "" } = req.query;
+
+    const keyword = q.trim();
 
     const [rows] = await pool.query(`
-      SELECT 
+      SELECT
         c.child_id,
         c.prefix,
         c.first_name,
         c.last_name,
-        cl.classroom_name,
-
-        ar.status AS attendance,
-        mr.status AS milk,
-        lr.status AS lunch,
-        tr.status AS toothbrush,
-
-        he.note AS health_note,
-        mm.weight,
-        mm.height
+        cl.name AS classroom_name
 
       FROM children c
-      LEFT JOIN classrooms cl ON cl.classroom_id = c.classroom_id
 
-      LEFT JOIN attendance_records ar 
-        ON ar.child_id = c.child_id 
-        AND MONTH(ar.record_date) = ?
-        AND YEAR(ar.record_date) = ?
-        AND ar.record_date = (SELECT MAX(record_date) FROM attendance_records WHERE child_id = c.child_id AND MONTH(record_date) = ? AND YEAR(record_date) = ?)
+      LEFT JOIN classrooms cl
+        ON cl.classroom_id = c.classroom_id
 
-      LEFT JOIN milk_records mr 
-        ON mr.child_id = c.child_id 
-        AND MONTH(mr.record_date) = ?
-        AND YEAR(mr.record_date) = ?
-        AND mr.record_date = (SELECT MAX(record_date) FROM milk_records WHERE child_id = c.child_id AND MONTH(record_date) = ? AND YEAR(record_date) = ?)
+      WHERE
 
-      LEFT JOIN lunch_records lr 
-        ON lr.child_id = c.child_id 
-        AND MONTH(lr.record_date) = ?
-        AND YEAR(lr.record_date) = ?
-        AND lr.record_date = (SELECT MAX(record_date) FROM lunch_records WHERE child_id = c.child_id AND MONTH(record_date) = ? AND YEAR(record_date) = ?)
-
-      LEFT JOIN toothbrush_records tr 
-        ON tr.child_id = c.child_id 
-        AND MONTH(tr.record_date) = ?
-        AND YEAR(tr.record_date) = ?
-        AND tr.record_date = (SELECT MAX(record_date) FROM toothbrush_records WHERE child_id = c.child_id AND MONTH(record_date) = ? AND YEAR(record_date) = ?)
-
-      LEFT JOIN health_evaluations he 
-        ON he.child_id = c.child_id 
-        AND MONTH(he.evaluation_date) = ?
-        AND YEAR(he.evaluation_date) = ?
-        AND he.evaluation_date = (SELECT MAX(evaluation_date) FROM health_evaluations WHERE child_id = c.child_id AND MONTH(evaluation_date) = ? AND YEAR(evaluation_date) = ?)
-
-      LEFT JOIN monthly_measurements mm 
-        ON mm.child_id = c.child_id 
-        AND MONTH(mm.measurement_date) = ?
-        AND YEAR(mm.measurement_date) = ?
-        AND mm.measurement_date = (SELECT MAX(measurement_date) FROM monthly_measurements WHERE child_id = c.child_id AND MONTH(measurement_date) = ? AND YEAR(measurement_date) = ?)
-
-      WHERE 
         c.prefix LIKE ? OR
         c.first_name LIKE ? OR
         c.last_name LIKE ? OR
-        cl.classroom_name LIKE ? OR
+        cl.name LIKE ? OR
+
+        CONCAT(c.first_name, ' ', c.last_name) LIKE ? OR
 
         CONCAT(c.prefix, c.first_name) LIKE ? OR
         CONCAT(c.prefix, ' ', c.first_name) LIKE ? OR
 
-        CONCAT(c.first_name, ' ', c.last_name) LIKE ? OR
-
         CONCAT(c.prefix, c.first_name, ' ', c.last_name) LIKE ? OR
         CONCAT(c.prefix, ' ', c.first_name, ' ', c.last_name) LIKE ?
+
+      ORDER BY c.first_name ASC
     `, [
-      month, year,
-      month, year,
-      month, year,
-      month, year,
-      month, year,
-      month, year,
-      month, year,
-      month, year,
-      month, year,
-      month, year,
-      month, year,
-      month, year,
-      `%${q}%`,
-      `%${q}%`,
-      `%${q}%`,
-      `%${q}%`,
-      `%${q}%`,
-      `%${q}%`,
-      `%${q}%`,
-      `%${q}%`,
-      `%${q}%`,
+      `%${keyword}%`,
+      `%${keyword}%`,
+      `%${keyword}%`,
+      `%${keyword}%`,
+      `%${keyword}%`,
+      `%${keyword}%`,
+      `%${keyword}%`,
+      `%${keyword}%`,
+      `%${keyword}%`,
     ]);
 
     res.json(rows);
@@ -173,6 +146,103 @@ router.get("/search-child", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "search error" });
+  }
+});
+
+/* ==================================================
+   📋 CHILD MONTH DETAIL
+================================================== */
+router.get("/child-month-detail/:childId", async (req, res) => {
+  try {
+
+    const { childId } = req.params;
+    const { month, year } = req.query;
+
+    /* attendance */
+    const [attendance] = await pool.query(`
+      SELECT
+        record_date,
+        status
+      FROM attendance_records
+      WHERE child_id = ?
+      AND MONTH(record_date) = ?
+      AND YEAR(record_date) = ?
+      ORDER BY record_date DESC
+    `, [childId, month, year]);
+
+    /* milk */
+    const [milk] = await pool.query(`
+      SELECT
+        record_date,
+        status
+      FROM milk_records
+      WHERE child_id = ?
+      AND MONTH(record_date) = ?
+      AND YEAR(record_date) = ?
+      ORDER BY record_date DESC
+    `, [childId, month, year]);
+
+    /* lunch */
+    const [lunch] = await pool.query(`
+      SELECT
+        record_date,
+        status
+      FROM lunch_records
+      WHERE child_id = ?
+      AND MONTH(record_date) = ?
+      AND YEAR(record_date) = ?
+      ORDER BY record_date DESC
+    `, [childId, month, year]);
+
+    /* toothbrush */
+    const [toothbrush] = await pool.query(`
+      SELECT
+        record_date,
+        status
+      FROM toothbrush_records
+      WHERE child_id = ?
+      AND MONTH(record_date) = ?
+      AND YEAR(record_date) = ?
+      ORDER BY record_date DESC
+    `, [childId, month, year]);
+
+    /* health */
+    const [health] = await pool.query(`
+      SELECT
+        evaluation_date,
+        note
+      FROM health_evaluations
+      WHERE child_id = ?
+      AND MONTH(evaluation_date) = ?
+      AND YEAR(evaluation_date) = ?
+      ORDER BY evaluation_date DESC
+    `, [childId, month, year]);
+
+    /* measurement */
+    const [measurements] = await pool.query(`
+      SELECT
+        measurement_date,
+        weight,
+        height
+      FROM monthly_measurements
+      WHERE child_id = ?
+      AND MONTH(measurement_date) = ?
+      AND YEAR(measurement_date) = ?
+      ORDER BY measurement_date DESC
+    `, [childId, month, year]);
+
+    res.json({
+      attendance,
+      milk,
+      lunch,
+      toothbrush,
+      health,
+      measurements
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "detail error" });
   }
 });
 
