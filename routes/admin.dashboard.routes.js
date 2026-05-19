@@ -71,9 +71,16 @@ router.get(
 );
 
 // 🔍 SEARCH CHILD
+// 🔍 SEARCH CHILD (แก้ไขพารามิเตอร์และชื่อคอลัมน์)
 router.get("/search-child", async (req, res) => {
   try {
     const { q, month, year } = req.query;
+
+    //แปลงปี พ.ศ. ให้เป็น ค.ศ. ก่อนนำไปค้นหาในฐานข้อมูล (กรณี React ส่งมาเป็น พ.ศ.)
+    const parsedYear = Number(year) > 2500 ? Number(year) - 543 : Number(year);
+    const parsedMonth = Number(month);
+
+    const searchQuery = `%${q || ""}%`;
 
     const [rows] = await pool.query(`
       SELECT 
@@ -81,13 +88,12 @@ router.get("/search-child", async (req, res) => {
         c.prefix,
         c.first_name,
         c.last_name,
-        cl.classroom_name,
+        cl.name AS classroom_name, -- แก้ตรงนี้ให้ตรงกับชื่อฟิลด์จริงในตาราง classrooms
 
         ar.status AS attendance,
         mr.status AS milk,
         lr.status AS lunch,
         tr.status AS toothbrush,
-
         he.note AS health_note,
         mm.weight,
         mm.height
@@ -111,7 +117,7 @@ router.get("/search-child", async (req, res) => {
         ON lr.child_id = c.child_id 
         AND MONTH(lr.record_date) = ?
         AND YEAR(lr.record_date) = ?
-        AND lr.record_date = (SELECT MAX(record_date) FROM lunch_records WHERE child_id = c.child_id AND MONTH(record_date) = ? AND YEAR(record_date) = ?)
+        AND lr.record_date = (SELECT MAX(record_date) FROM lunch_records WHERE child_id = c.child_id AND MONTH(lunch_date) = ? AND YEAR(lunch_date) = ?) -- หมายเหตุ: บางที่ใช้ lunch_date ตรวจสอบโครงสร้างตารางด้วยครับ
 
       LEFT JOIN toothbrush_records tr 
         ON tr.child_id = c.child_id 
@@ -135,43 +141,31 @@ router.get("/search-child", async (req, res) => {
         c.prefix LIKE ? OR
         c.first_name LIKE ? OR
         c.last_name LIKE ? OR
-        cl.classroom_name LIKE ? OR
+        cl.name LIKE ? OR -- เปลี่ยนเป็น cl.name ให้แมตช์ตามโครงสร้าง
 
         CONCAT(c.prefix, c.first_name) LIKE ? OR
         CONCAT(c.prefix, ' ', c.first_name) LIKE ? OR
-
         CONCAT(c.first_name, ' ', c.last_name) LIKE ? OR
-
         CONCAT(c.prefix, c.first_name, ' ', c.last_name) LIKE ? OR
         CONCAT(c.prefix, ' ', c.first_name, ' ', c.last_name) LIKE ?
     `, [
-      month, year,
-      month, year,
-      month, year,
-      month, year,
-      month, year,
-      month, year,
-      month, year,
-      month, year,
-      month, year,
-      month, year,
-      month, year,
-      month, year,
-      `%${q}%`,
-      `%${q}%`,
-      `%${q}%`,
-      `%${q}%`,
-      `%${q}%`,
-      `%${q}%`,
-      `%${q}%`,
-      `%${q}%`,
-      `%${q}%`,
+      // พารามิเตอร์ตารางที่ 1-6 (รวม 24 ตัวแปรสำหรับ ?)
+      parsedMonth, parsedYear, parsedMonth, parsedYear,
+      parsedMonth, parsedYear, parsedMonth, parsedYear,
+      parsedMonth, parsedYear, parsedMonth, parsedYear,
+      parsedMonth, parsedYear, parsedMonth, parsedYear,
+      parsedMonth, parsedYear, parsedMonth, parsedYear,
+      parsedMonth, parsedYear, parsedMonth, parsedYear,
+      
+      // พารามิเตอร์สำหรับส่วนเงื่อนไข LIKE (9 ตัวแปร)
+      searchQuery, searchQuery, searchQuery, searchQuery,
+      searchQuery, searchQuery, searchQuery, searchQuery, searchQuery
     ]);
 
     res.json(rows);
 
   } catch (err) {
-    console.error(err);
+    console.error("Search API Error: ", err);
     res.status(500).json({ error: "search error" });
   }
 });
