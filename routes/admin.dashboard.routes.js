@@ -71,35 +71,23 @@ router.get(
 );
 
 // 🔍 SEARCH CHILD
-// 🔍 SEARCH CHILD (เวอร์ชันแก้ไข Error 500 - ปรับพารามิเตอร์และตรวจสอบชื่อคอลัมน์)
 router.get("/search-child", async (req, res) => {
   try {
     const { q, month, year } = req.query;
 
-    // ตรวจสอบค่าเดือนและปี (แปลงเป็น Number)
-    const parsedMonth = parseInt(month, 10) || new Date().getMonth() + 1;
-    let parsedYear = parseInt(year, 10) || new Date().getFullYear();
-    
-    // ถ้าฝั่งหน้าบ้านหลุดปี พ.ศ. เกิน 2500 มา ค่อยแปลงเป็น ค.ศ.
-    if (parsedYear > 2500) {
-      parsedYear = parsedYear - 543;
-    }
-
-    const searchQuery = `%${q || ""}%`;
-
-    // 💡 ปรับ SQL ให้ปลอดภัยและส่งพารามิเตอร์ตรงตัวตามลำดับ
     const [rows] = await pool.query(`
       SELECT 
         c.child_id,
         c.prefix,
         c.first_name,
         c.last_name,
-        cl.name AS classroom_name,
+        cl.classroom_name,
 
         ar.status AS attendance,
         mr.status AS milk,
         lr.status AS lunch,
         tr.status AS toothbrush,
+
         he.note AS health_note,
         mm.weight,
         mm.height
@@ -109,64 +97,82 @@ router.get("/search-child", async (req, res) => {
 
       LEFT JOIN attendance_records ar 
         ON ar.child_id = c.child_id 
-        AND MONTH(ar.record_date) = ? AND YEAR(ar.record_date) = ?
+        AND MONTH(ar.record_date) = ?
+        AND YEAR(ar.record_date) = ?
         AND ar.record_date = (SELECT MAX(record_date) FROM attendance_records WHERE child_id = c.child_id AND MONTH(record_date) = ? AND YEAR(record_date) = ?)
 
       LEFT JOIN milk_records mr 
         ON mr.child_id = c.child_id 
-        AND MONTH(mr.record_date) = ? AND YEAR(mr.record_date) = ?
+        AND MONTH(mr.record_date) = ?
+        AND YEAR(mr.record_date) = ?
         AND mr.record_date = (SELECT MAX(record_date) FROM milk_records WHERE child_id = c.child_id AND MONTH(record_date) = ? AND YEAR(record_date) = ?)
 
       LEFT JOIN lunch_records lr 
         ON lr.child_id = c.child_id 
-        AND MONTH(lr.record_date) = ? AND YEAR(lr.record_date) = ?
+        AND MONTH(lr.record_date) = ?
+        AND YEAR(lr.record_date) = ?
         AND lr.record_date = (SELECT MAX(record_date) FROM lunch_records WHERE child_id = c.child_id AND MONTH(record_date) = ? AND YEAR(record_date) = ?)
 
       LEFT JOIN toothbrush_records tr 
         ON tr.child_id = c.child_id 
-        AND MONTH(tr.record_date) = ? AND YEAR(tr.record_date) = ?
+        AND MONTH(tr.record_date) = ?
+        AND YEAR(tr.record_date) = ?
         AND tr.record_date = (SELECT MAX(record_date) FROM toothbrush_records WHERE child_id = c.child_id AND MONTH(record_date) = ? AND YEAR(record_date) = ?)
 
       LEFT JOIN health_evaluations he 
         ON he.child_id = c.child_id 
-        AND MONTH(he.evaluation_date) = ? AND YEAR(he.evaluation_date) = ?
+        AND MONTH(he.evaluation_date) = ?
+        AND YEAR(he.evaluation_date) = ?
         AND he.evaluation_date = (SELECT MAX(evaluation_date) FROM health_evaluations WHERE child_id = c.child_id AND MONTH(evaluation_date) = ? AND YEAR(evaluation_date) = ?)
 
       LEFT JOIN monthly_measurements mm 
         ON mm.child_id = c.child_id 
-        AND MONTH(mm.measurement_date) = ? AND YEAR(mm.measurement_date) = ?
+        AND MONTH(mm.measurement_date) = ?
+        AND YEAR(mm.measurement_date) = ?
         AND mm.measurement_date = (SELECT MAX(measurement_date) FROM monthly_measurements WHERE child_id = c.child_id AND MONTH(measurement_date) = ? AND YEAR(measurement_date) = ?)
 
       WHERE 
         c.prefix LIKE ? OR
         c.first_name LIKE ? OR
         c.last_name LIKE ? OR
-        cl.name LIKE ? OR
+        cl.classroom_name LIKE ? OR
+
         CONCAT(c.prefix, c.first_name) LIKE ? OR
         CONCAT(c.prefix, ' ', c.first_name) LIKE ? OR
+
         CONCAT(c.first_name, ' ', c.last_name) LIKE ? OR
+
         CONCAT(c.prefix, c.first_name, ' ', c.last_name) LIKE ? OR
         CONCAT(c.prefix, ' ', c.first_name, ' ', c.last_name) LIKE ?
     `, [
-      // ส่งคู่ [Month, Year] ทั้งหมด 6 ชุดให้ครบทุกตารางย่อย (ตารางละ 4 ตัวแปรรวมเป็น 24 พารามิเตอร์)
-      parsedMonth, parsedYear, parsedMonth, parsedYear, // attendance
-      parsedMonth, parsedYear, parsedMonth, parsedYear, // milk
-      parsedMonth, parsedYear, parsedMonth, parsedYear, // lunch (แก้กลับเป็น record_date ตามหลักสากลระบบมึง)
-      parsedMonth, parsedYear, parsedMonth, parsedYear, // toothbrush
-      parsedMonth, parsedYear, parsedMonth, parsedYear, // health
-      parsedMonth, parsedYear, parsedMonth, parsedYear, // measurements
-      
-      // เงื่อนไขสืบค้น LIKE อีก 9 ตัวแปร
-      searchQuery, searchQuery, searchQuery, searchQuery,
-      searchQuery, searchQuery, searchQuery, searchQuery, searchQuery
+      month, year,
+      month, year,
+      month, year,
+      month, year,
+      month, year,
+      month, year,
+      month, year,
+      month, year,
+      month, year,
+      month, year,
+      month, year,
+      month, year,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
+      `%${q}%`,
     ]);
 
     res.json(rows);
 
   } catch (err) {
-    // พ่นรายละเอียด Error ลง Console ของฝั่ง Terminal / Render ตัวเต็ม จะได้รู้ว่าคอลัมน์ไหนพัง
-    console.error("🔴 SERVER 500 ERROR DETAILS:", err.message);
-    res.status(500).json({ error: "search error", detail: err.message });
+    console.error(err);
+    res.status(500).json({ error: "search error" });
   }
 });
 
