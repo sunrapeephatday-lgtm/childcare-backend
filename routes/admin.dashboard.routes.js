@@ -70,102 +70,84 @@ router.get(
   }
 );
 
-// 🔍 SEARCH CHILD
 router.get("/search-child", async (req, res) => {
   try {
     const { q, month, year } = req.query;
-
-    // ✅ แปลง พ.ศ. → ค.ศ.
     const ceYear = Number(year) > 2500 ? Number(year) - 543 : Number(year);
+    const like = `%${q}%`;
 
-    // ค้นหารายชื่อเด็กก่อน
-    const [children] = await pool.query(`
+    const [rows] = await pool.query(`
       SELECT 
         c.child_id,
         c.prefix,
         c.first_name,
         c.last_name,
-        cl.classroom_name
+        cl.name AS classroom_name,
+
+        ar.status AS attendance,
+        mr.status AS milk,
+        lr.status AS lunch,
+        tr.status AS toothbrush,
+        he.note AS health_note,
+        mm.weight,
+        mm.height
+
       FROM children c
       LEFT JOIN classrooms cl ON cl.classroom_id = c.classroom_id
+
+      LEFT JOIN attendance_records ar 
+        ON ar.child_id = c.child_id 
+        AND MONTH(ar.record_date) = ? AND YEAR(ar.record_date) = ?
+        AND ar.record_date = (SELECT MAX(record_date) FROM attendance_records WHERE child_id = c.child_id AND MONTH(record_date) = ? AND YEAR(record_date) = ?)
+
+      LEFT JOIN milk_records mr 
+        ON mr.child_id = c.child_id 
+        AND MONTH(mr.record_date) = ? AND YEAR(mr.record_date) = ?
+        AND mr.record_date = (SELECT MAX(record_date) FROM milk_records WHERE child_id = c.child_id AND MONTH(record_date) = ? AND YEAR(record_date) = ?)
+
+      LEFT JOIN lunch_records lr 
+        ON lr.child_id = c.child_id 
+        AND MONTH(lr.record_date) = ? AND YEAR(lr.record_date) = ?
+        AND lr.record_date = (SELECT MAX(record_date) FROM lunch_records WHERE child_id = c.child_id AND MONTH(record_date) = ? AND YEAR(record_date) = ?)
+
+      LEFT JOIN toothbrush_records tr 
+        ON tr.child_id = c.child_id 
+        AND MONTH(tr.record_date) = ? AND YEAR(tr.record_date) = ?
+        AND tr.record_date = (SELECT MAX(record_date) FROM toothbrush_records WHERE child_id = c.child_id AND MONTH(record_date) = ? AND YEAR(record_date) = ?)
+
+      LEFT JOIN health_evaluations he 
+        ON he.child_id = c.child_id 
+        AND MONTH(he.evaluation_date) = ? AND YEAR(he.evaluation_date) = ?
+        AND he.evaluation_date = (SELECT MAX(evaluation_date) FROM health_evaluations WHERE child_id = c.child_id AND MONTH(evaluation_date) = ? AND YEAR(evaluation_date) = ?)
+
+      LEFT JOIN monthly_measurements mm 
+        ON mm.child_id = c.child_id 
+        AND MONTH(mm.measurement_date) = ? AND YEAR(mm.measurement_date) = ?
+        AND mm.measurement_date = (SELECT MAX(measurement_date) FROM monthly_measurements WHERE child_id = c.child_id AND MONTH(measurement_date) = ? AND YEAR(measurement_date) = ?)
+
       WHERE 
-        c.prefix LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR
-        cl.classroom_name LIKE ? OR
-        CONCAT(c.prefix, ' ', c.first_name, ' ', c.last_name) LIKE ?
-    `, Array(5).fill(`%${q}%`));
+        c.first_name        LIKE ? OR   -- ชื่อเดียว
+        c.last_name         LIKE ? OR   -- นามสกุลเดียว
+        cl.name             LIKE ? OR   -- ห้องเรียน
+        CONCAT(c.prefix, c.first_name)              LIKE ? OR  -- เด็กชายสมชาย
+        CONCAT(c.prefix, ' ', c.first_name)         LIKE ? OR  -- เด็กชาย สมชาย
+        CONCAT(c.first_name, ' ', c.last_name)      LIKE ? OR  -- สมชาย ใจดี
+        CONCAT(c.prefix, c.first_name, ' ', c.last_name)       LIKE ? OR  -- เด็กชายสมชาย ใจดี
+        CONCAT(c.prefix, ' ', c.first_name, ' ', c.last_name)  LIKE ?     -- เด็กชาย สมชาย ใจดี
 
-    if (children.length === 0) return res.json([]);
+    `, [
+      month, ceYear, month, ceYear,  // attendance
+      month, ceYear, month, ceYear,  // milk
+      month, ceYear, month, ceYear,  // lunch
+      month, ceYear, month, ceYear,  // toothbrush
+      month, ceYear, month, ceYear,  // health
+      month, ceYear, month, ceYear,  // measurements
+      like, like, like,              // first_name, last_name, classroom
+      like, like, like, like, like   // CONCAT combinations
+    ]);
 
-    const childIds = children.map(c => c.child_id);
-    const placeholders = childIds.map(() => "?").join(",");
+    res.json(rows);
 
-    // ✅ ดึงข้อมูลรายวันทุกตาราง
-    const [[attendance], [milk], [lunch], [toothbrush], [health], [measurements]] =
-      await Promise.all([
-        pool.query(`SELECT child_id, DAY(record_date) AS day, status
-          FROM attendance_records
-          WHERE child_id IN (${placeholders}) AND MONTH(record_date)=? AND YEAR(record_date)=?`,
-          [...childIds, month, ceYear]),
-
-        pool.query(`SELECT child_id, DAY(record_date) AS day, status
-          FROM milk_records
-          WHERE child_id IN (${placeholders}) AND MONTH(record_date)=? AND YEAR(record_date)=?`,
-          [...childIds, month, ceYear]),
-
-        pool.query(`SELECT child_id, DAY(record_date) AS day, status
-          FROM lunch_records
-          WHERE child_id IN (${placeholders}) AND MONTH(record_date)=? AND YEAR(record_date)=?`,
-          [...childIds, month, ceYear]),
-
-        pool.query(`SELECT child_id, DAY(record_date) AS day, status
-          FROM toothbrush_records
-          WHERE child_id IN (${placeholders}) AND MONTH(record_date)=? AND YEAR(record_date)=?`,
-          [...childIds, month, ceYear]),
-
-        pool.query(`SELECT child_id, DAY(evaluation_date) AS day, note AS status
-          FROM health_evaluations
-          WHERE child_id IN (${placeholders}) AND MONTH(evaluation_date)=? AND YEAR(evaluation_date)=?`,
-          [...childIds, month, ceYear]),
-
-        pool.query(`SELECT child_id, DAY(measurement_date) AS day, weight, height
-          FROM monthly_measurements
-          WHERE child_id IN (${placeholders}) AND MONTH(measurement_date)=? AND YEAR(measurement_date)=?`,
-          [...childIds, month, ceYear]),
-      ]);
-
-    // จัดข้อมูลเป็น Map [child_id][day]
-    const toMap = (rows) => rows.reduce((acc, r) => {
-      if (!acc[r.child_id]) acc[r.child_id] = {};
-      acc[r.child_id][r.day] = r.status;
-      return acc;
-    }, {});
-
-    const attMap   = toMap(attendance);
-    const milkMap  = toMap(milk);
-    const lunchMap = toMap(lunch);
-    const toothMap = toMap(toothbrush);
-    const healthMap = toMap(health);
-
-    const measureMap = measurements.reduce((acc, r) => {
-      if (!acc[r.child_id]) acc[r.child_id] = {};
-      acc[r.child_id][r.day] = { weight: r.weight, height: r.height };
-      return acc;
-    }, {});
-
-    // รวมข้อมูลกับรายชื่อเด็ก
-    const result = children.map(c => ({
-      ...c,
-      dailyData: {
-        attendance:  attMap[c.child_id]   || {},
-        milk:        milkMap[c.child_id]  || {},
-        lunch:       lunchMap[c.child_id] || {},
-        toothbrush:  toothMap[c.child_id] || {},
-        health:      healthMap[c.child_id]|| {},
-        measurements: measureMap[c.child_id] || {},
-      }
-    }));
-
-    res.json(result);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "search error" });
